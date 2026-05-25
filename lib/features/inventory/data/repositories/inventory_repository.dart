@@ -156,8 +156,13 @@ class InventoryRepository {
     required List<OrderItemModel> items,
   }) async {
     try {
-      // 1. Fetch all recipes matching ordered product names
-      final productNames = items.map((i) => i.productName).toSet().toList();
+      // 1. Fetch all recipes matching ordered product names and addons
+      final productNames = <String>{};
+      for (final item in items) {
+        productNames.add(item.productName);
+        productNames.addAll(item.addons);
+      }
+      
       final recipeSnaps = await Future.wait(
         productNames.map((name) => _recipes.doc(_slugify(name)).get()),
       );
@@ -176,12 +181,26 @@ class InventoryRepository {
       // 2. Compute total deductions: ingredientName → totalQty
       final deductions = <String, double>{};
       for (final item in items) {
-        final recipe = recipeMap[item.productName];
-        if (recipe == null) continue;
-        for (final ri in recipe.ingredients) {
-          deductions[ri.ingredientName] =
-              (deductions[ri.ingredientName] ?? 0) +
-                  ri.quantity * item.quantity;
+        // Main product recipe
+        final mainRecipe = recipeMap[item.productName];
+        if (mainRecipe != null) {
+          for (final ri in mainRecipe.ingredients) {
+            deductions[ri.ingredientName] =
+                (deductions[ri.ingredientName] ?? 0) +
+                    ri.quantity * item.quantity;
+          }
+        }
+        
+        // Addon recipes
+        for (final addon in item.addons) {
+          final addonRecipe = recipeMap[addon];
+          if (addonRecipe != null) {
+            for (final ri in addonRecipe.ingredients) {
+              deductions[ri.ingredientName] =
+                  (deductions[ri.ingredientName] ?? 0) +
+                      ri.quantity * item.quantity;
+            }
+          }
         }
       }
 

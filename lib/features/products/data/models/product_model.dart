@@ -34,6 +34,7 @@ class ProductModel extends Equatable {
     this.imageUrl,
     this.status = ProductStatus.active,
     this.sortOrder = 0,
+    this.salesCount = 0,
     this.updatedAt,
   });
 
@@ -46,6 +47,7 @@ class ProductModel extends Equatable {
   final String? imageUrl;
   final ProductStatus status;
   final int sortOrder;
+  final int salesCount;
   final DateTime? updatedAt;
 
   factory ProductModel.fromFirestore(DocumentSnapshot doc) {
@@ -67,6 +69,7 @@ class ProductModel extends Equatable {
         orElse: () => ProductStatus.active,
       ),
       sortOrder:   data['sortOrder']   as int? ?? 0,
+      salesCount:  data['salesCount']  as int? ?? 0,
       updatedAt:   (data['updatedAt']  as Timestamp?)?.toDate(),
     );
   }
@@ -81,11 +84,12 @@ class ProductModel extends Equatable {
     'imageUrl':    imageUrl,
     'status':      status.name,
     'sortOrder':   sortOrder,
+    'salesCount':  salesCount,
     'updatedAt':   FieldValue.serverTimestamp(),
   };
 
   @override
-  List<Object?> get props => [id, name, basePrice, status, emoji];
+  List<Object?> get props => [id, name, basePrice, status, emoji, salesCount];
 }
 
 class ProductVariantModel extends Equatable {

@@ -21,6 +21,8 @@ Stream<List<ProductModel>> allProducts(AllProductsRef ref) {
 @riverpod
 List<ProductModel> filteredProducts(FilteredProductsRef ref, String category) {
   final products = ref.watch(activeProductsProvider).valueOrNull ?? [];
-  if (category == 'All') return products;
+  if (category == 'All') {
+    return products.where((p) => p.category != ProductCategory.addon).toList();
+  }
   return products.where((p) => p.category.label == category).toList();
 }

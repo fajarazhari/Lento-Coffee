@@ -4,7 +4,7 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../../../../core/constants/firestore_paths.dart';
 import '../../../../core/errors/failure.dart';
-import '../../data/models/shift_model.dart';
+import '../models/shift_model.dart';
 
 part 'shift_repository.g.dart';
 
@@ -14,104 +14,144 @@ ShiftRepository shiftRepository(ShiftRepositoryRef ref) {
 }
 
 class ShiftRepository {
-  ShiftRepository({required this.firestore});
+  const ShiftRepository({required this.firestore});
   final FirebaseFirestore firestore;
 
   CollectionReference get _shifts => firestore.collection(FirestorePaths.shifts);
 
-  // ── Watch active shift ─────────────────────────────────────────────────────
-  Stream<ShiftModel?> watchActiveShift() {
+  Future<Either<Failure, ShiftModel?>> getActiveShift(String cashierId) async {
+    try {
+      final snap = await _shifts
+          .where('cashierId', isEqualTo: cashierId)
+          .where('status', isEqualTo: ShiftStatus.open.name)
+          .limit(1)
+          .get();
+
+      if (snap.docs.isEmpty) return const Right(null);
+      return Right(ShiftModel.fromFirestore(snap.docs.first));
+    } catch (e) {
+      return Left(ServerFailure(e.toString()));
+    }
+  }
+
+  Stream<ShiftModel?> watchActiveShift(String cashierId) {
+    return _shifts
+        .where('cashierId', isEqualTo: cashierId)
+        .where('status', isEqualTo: ShiftStatus.open.name)
+        .limit(1)
+        .snapshots()
+        .map((snap) {
+      if (snap.docs.isEmpty) return null;
+      return ShiftModel.fromFirestore(snap.docs.first);
+    });
+  }
+
+  Stream<List<ShiftModel>> watchAllActiveShifts() {
     return _shifts
         .where('status', isEqualTo: ShiftStatus.open.name)
         .orderBy('openedAt', descending: true)
-        .limit(1)
         .snapshots()
-        .map((snap) => snap.docs.isEmpty
-            ? null
-            : ShiftModel.fromFirestore(snap.docs.first));
+        .map((snap) => snap.docs.map(ShiftModel.fromFirestore).toList());
   }
 
-  // ── Open shift ─────────────────────────────────────────────────────────────
-  Future<Either<Failure, String>> openShift(ShiftModel shift) async {
-    try {
-      final doc = await _shifts.add(shift.toFirestore());
-      return Right(doc.id);
-    } catch (e) {
-      return Left(ServerFailure(e.toString()));
-    }
+  Stream<List<ShiftModel>> watchShiftsByDate(DateTime date) {
+    final start = DateTime(date.year, date.month, date.day);
+    final end = DateTime(date.year, date.month, date.day, 23, 59, 59);
+    
+    return _shifts
+        .where('openedAt', isGreaterThanOrEqualTo: Timestamp.fromDate(start))
+        .where('openedAt', isLessThanOrEqualTo: Timestamp.fromDate(end))
+        .orderBy('openedAt', descending: true)
+        .snapshots()
+        .map((snap) => snap.docs.map(ShiftModel.fromFirestore).toList());
   }
 
-  // ── Close shift ────────────────────────────────────────────────────────────
-  Future<Either<Failure, Unit>> closeShift({
-    required String shiftId,
-    required double closingCash,
-    required double expectedCash,
-    required String notes,
+  Future<Either<Failure, ShiftModel>> openShift({
+    required String cashierId,
+    required String cashierName,
+    required double openingCash,
   }) async {
     try {
-      await _shifts.doc(shiftId).update({
-        'status':       ShiftStatus.closed.name,
-        'closingCash':  closingCash,
-        'difference':   closingCash - expectedCash,
-        'closingNotes': notes,
-        'closedAt':     FieldValue.serverTimestamp(),
-      });
-      return const Right(unit);
-    } catch (e) {
-      return Left(ServerFailure(e.toString()));
-    }
-  }
-
-  // ── Record cash transaction ────────────────────────────────────────────────
-  Future<Either<Failure, Unit>> recordCashTransaction({
-    required String shiftId,
-    required CashTransactionModel transaction,
-  }) async {
-    try {
-      final batch = firestore.batch();
-
-      // Add cash transaction sub-document
-      final txRef = firestore
-          .collection(FirestorePaths.cashTransactions(shiftId))
-          .doc();
-      batch.set(txRef, transaction.toFirestore());
-
-      // Update shift running totals
-      final Map<String, dynamic> shiftUpdate = {'updatedAt': FieldValue.serverTimestamp()};
-      switch (transaction.type) {
-        case CashTransactionType.cashIn:
-          shiftUpdate['cashIn'] = FieldValue.increment(transaction.amount);
-        case CashTransactionType.cashOut:
-          shiftUpdate['cashOut'] = FieldValue.increment(transaction.amount);
-        case CashTransactionType.adjustment:
-          break; // Adjustment doesn't change totals, just recorded for audit
+      final active = await getActiveShift(cashierId);
+      if (active.isRight() && active.getOrElse(() => null) != null) {
+        return Left(ServerFailure('Kasir ini masih memiliki shift yang belum ditutup.'));
       }
-      batch.update(_shifts.doc(shiftId), shiftUpdate);
+
+      final ref = _shifts.doc();
+      final now = DateTime.now();
+      
+      final shift = ShiftModel(
+        id: ref.id,
+        name: 'Shift ${now.day}/${now.month}/${now.year}', // Can be customized
+        cashierId: cashierId,
+        cashierName: cashierName,
+        openingCash: openingCash,
+        status: ShiftStatus.open,
+        openedAt: now,
+      );
+
+      await ref.set(shift.toFirestore());
+      return Right(shift);
+    } catch (e) {
+      return Left(ServerFailure(e.toString()));
+    }
+  }
+
+  Future<Either<Failure, void>> closeShift({
+    required String shiftId,
+    required double closingCash, // Uang fisik aktual
+    required double expectedCash, // Uang sistem
+  }) async {
+    try {
+      final diff = closingCash - expectedCash;
+      
+      await _shifts.doc(shiftId).update({
+        'status': ShiftStatus.closed.name,
+        'closedAt': FieldValue.serverTimestamp(),
+        'closingCash': closingCash,
+        'difference': diff,
+      });
+      return const Right(null);
+    } catch (e) {
+      return Left(ServerFailure(e.toString()));
+    }
+  }
+
+  Future<Either<Failure, void>> addCashTransaction({
+    required String shiftId,
+    required double amount,
+    required CashTransactionType type,
+    required String reason,
+    required String recordedBy,
+  }) async {
+    try {
+      final txRef = _shifts.doc(shiftId).collection('cash_transactions').doc();
+      final tx = CashTransactionModel(
+        id: txRef.id,
+        type: type,
+        amount: amount,
+        reason: reason,
+        recordedBy: recordedBy,
+        createdAt: DateTime.now(),
+      );
+
+      // Run in a batch to update shift totals too
+      final batch = firestore.batch();
+      batch.set(txRef, tx.toFirestore());
+      
+      final updateData = <String, dynamic>{};
+      if (type == CashTransactionType.cashIn) {
+        updateData['cashIn'] = FieldValue.increment(amount);
+      } else if (type == CashTransactionType.cashOut) {
+        updateData['cashOut'] = FieldValue.increment(amount);
+      }
+      
+      if (updateData.isNotEmpty) {
+        batch.update(_shifts.doc(shiftId), updateData);
+      }
 
       await batch.commit();
-      return const Right(unit);
-    } catch (e) {
-      return Left(ServerFailure(e.toString()));
-    }
-  }
-
-  // ── Get cash transactions for a shift ─────────────────────────────────────
-  Stream<List<CashTransactionModel>> watchCashTransactions(String shiftId) {
-    return firestore
-        .collection(FirestorePaths.cashTransactions(shiftId))
-        .orderBy('createdAt', descending: true)
-        .snapshots()
-        .map((snap) => snap.docs.map(CashTransactionModel.fromFirestore).toList());
-  }
-
-  // ── Get past shifts ────────────────────────────────────────────────────────
-  Future<Either<Failure, List<ShiftModel>>> getShiftHistory({int limit = 30}) async {
-    try {
-      final snap = await _shifts
-          .orderBy('openedAt', descending: true)
-          .limit(limit)
-          .get();
-      return Right(snap.docs.map(ShiftModel.fromFirestore).toList());
+      return const Right(null);
     } catch (e) {
       return Left(ServerFailure(e.toString()));
     }

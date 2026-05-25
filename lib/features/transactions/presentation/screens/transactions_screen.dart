@@ -5,12 +5,22 @@ import '../../../../app/theme/app_colors.dart';
 import '../../../../core/utils/currency_formatter.dart';
 import '../../data/models/order_model.dart';
 import '../providers/orders_provider.dart';
+import '../../../auth/data/models/app_user_model.dart';
+import '../../../auth/presentation/screens/auth_screen.dart';
+import '../../data/repositories/order_repository.dart';
 
-class TransactionsScreen extends ConsumerWidget {
+class TransactionsScreen extends ConsumerStatefulWidget {
   const TransactionsScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<TransactionsScreen> createState() => _TransactionsScreenState();
+}
+
+class _TransactionsScreenState extends ConsumerState<TransactionsScreen> {
+  String _searchQuery = '';
+
+  @override
+  Widget build(BuildContext context) {
     // allOrdersProvider includes done/completed orders
     final ordersAsync = ref.watch(allOrdersProvider);
 
@@ -29,11 +39,23 @@ class TransactionsScreen extends ConsumerWidget {
                     fontSize: 20, fontWeight: FontWeight.w800,
                     color: AppColors.coffeeDark)),
                 const Spacer(),
+                if (demoUserNotifier.value?.role == UserRole.owner)
+                  IconButton(
+                    icon: const Icon(Icons.cleaning_services_rounded, color: AppColors.statusRed),
+                    tooltip: 'Clean Demo Orders',
+                    onPressed: () async {
+                      final repo = ref.read(orderRepositoryProvider);
+                      await repo.cleanDemoOrders();
+                      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Demo orders deleted')));
+                    },
+                  ),
+                const SizedBox(width: 16),
                 SizedBox(
                   width: 240, height: 38,
                   child: TextField(
+                    onChanged: (val) => setState(() => _searchQuery = val.toLowerCase()),
                     decoration: const InputDecoration(
-                      hintText: 'Search orders...',
+                      hintText: 'Cari nomor order / nama...',
                       prefixIcon: Icon(Icons.search_rounded, size: 18),
                       isDense: true,
                       contentPadding: EdgeInsets.symmetric(vertical: 0),
@@ -69,7 +91,14 @@ class TransactionsScreen extends ConsumerWidget {
                     color: AppColors.coffeeBrown)),
               error: (e, _) =>
                   Center(child: Text('Error: $e')),
-              data: (orders) {
+              data: (allOrders) {
+                final orders = allOrders.where((o) {
+                  final q = _searchQuery;
+                  if (q.isEmpty) return true;
+                  return o.orderNumber.toLowerCase().contains(q) || 
+                         o.customerName.toLowerCase().contains(q);
+                }).toList();
+
                 if (orders.isEmpty) {
                   return const Center(
                     child: Column(
@@ -78,7 +107,7 @@ class TransactionsScreen extends ConsumerWidget {
                         Icon(Icons.receipt_long_rounded,
                             color: AppColors.borderColor, size: 56),
                         SizedBox(height: 12),
-                        Text('Belum ada transaksi',
+                        Text('Belum ada transaksi / tidak ditemukan',
                           style: TextStyle(
                             color: AppColors.coffeeMuted, fontSize: 16)),
                         Text('Transaksi dari POS akan muncul di sini',
@@ -91,12 +120,210 @@ class TransactionsScreen extends ConsumerWidget {
                 return ListView.separated(
                   itemCount: orders.length,
                   separatorBuilder: (_, __) => const Divider(height: 1),
-                  itemBuilder: (_, i) => _OrderRow(order: orders[i]),
+                  itemBuilder: (_, i) => InkWell(
+                    onTap: () => _showOrderDetailDialog(context, orders[i]),
+                    child: _OrderRow(order: orders[i]),
+                  ),
                 );
               },
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  void _showOrderDetailDialog(BuildContext context, OrderModel order) {
+    showDialog(
+      context: context,
+      builder: (ctx) => _OrderDetailDialog(order: order, parentRef: ref),
+    );
+  }
+}
+
+class _OrderDetailDialog extends StatefulWidget {
+  const _OrderDetailDialog({required this.order, required this.parentRef});
+  final OrderModel order;
+  final WidgetRef parentRef;
+
+  @override
+  State<_OrderDetailDialog> createState() => _OrderDetailDialogState();
+}
+
+class _OrderDetailDialogState extends State<_OrderDetailDialog> {
+  bool _isLoading = false;
+
+  Future<void> _voidOrder() async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Batalkan Pesanan (Void)?'),
+        content: const Text('Apakah Anda yakin ingin membatalkan pesanan ini? Aksi ini akan mengubah status struk menjadi Cancelled.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Tutup', style: TextStyle(color: AppColors.coffeeMuted))),
+          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Ya, Batalkan', style: TextStyle(color: AppColors.statusRed, fontWeight: FontWeight.w800))),
+        ],
+      )
+    );
+
+    if (confirm != true) return;
+    if (!mounted) return;
+    setState(() => _isLoading = true);
+
+    final repo = widget.parentRef.read(orderRepositoryProvider);
+    final res = await repo.cancelOrder(widget.order.id, 'Void by Owner');
+
+    if (!mounted) return;
+    setState(() => _isLoading = false);
+
+    res.fold(
+      (f) => ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Gagal membatalkan: ${f.message}'))),
+      (_) {
+        Navigator.pop(context); // Close detail dialog
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Pesanan berhasil dibatalkan.')));
+      }
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final o = widget.order;
+    final isOwner = demoUserNotifier.value?.role == UserRole.owner;
+    final canVoid = isOwner && o.status != OrderStatus.cancelled;
+
+    return Dialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: Container(
+        width: 500,
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text('Struk Pesanan', style: TextStyle(fontSize: 24, fontWeight: FontWeight.w900, color: AppColors.coffeeDark)),
+                IconButton(
+                  icon: const Icon(Icons.close_rounded),
+                  onPressed: () => Navigator.pop(context),
+                )
+              ],
+            ),
+            const Divider(height: 32),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text('Nomor Order:', style: TextStyle(color: AppColors.coffeeMuted)),
+                Text(o.orderNumber, style: const TextStyle(fontWeight: FontWeight.w800)),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text('Kasir:', style: TextStyle(color: AppColors.coffeeMuted)),
+                Text(o.cashierName, style: const TextStyle(fontWeight: FontWeight.w800)),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text('Waktu:', style: TextStyle(color: AppColors.coffeeMuted)),
+                Text('${o.createdAt.hour}:${o.createdAt.minute} - ${o.createdAt.day}/${o.createdAt.month}', style: const TextStyle(fontWeight: FontWeight.w800)),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text('Metode Pembayaran:', style: TextStyle(color: AppColors.coffeeMuted)),
+                Text(o.paymentMethod.label, style: const TextStyle(fontWeight: FontWeight.w800)),
+              ],
+            ),
+            const Divider(height: 32),
+            const Text('Item Pesanan', style: TextStyle(fontWeight: FontWeight.w800, color: AppColors.coffeeDark)),
+            const SizedBox(height: 12),
+            ...o.items.map((i) => Padding(
+              padding: const EdgeInsets.only(bottom: 8.0),
+              child: Row(
+                children: [
+                  Text('${i.quantity}x', style: const TextStyle(fontWeight: FontWeight.w800, color: AppColors.coffeeBrown)),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(i.productName, style: const TextStyle(fontWeight: FontWeight.w600)),
+                        if (i.size.isNotEmpty || i.temperature.isNotEmpty)
+                          Text('${i.size} • ${i.temperature}', style: const TextStyle(fontSize: 12, color: AppColors.coffeeMuted)),
+                        if (i.addons.isNotEmpty)
+                          Text(i.addons.join(', '), style: const TextStyle(fontSize: 12, color: AppColors.coffeeMuted)),
+                      ],
+                    ),
+                  ),
+                  Text(CurrencyFormatter.format(i.totalPrice), style: const TextStyle(fontWeight: FontWeight.w700)),
+                ],
+              ),
+            )),
+            const Divider(height: 32),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text('Total Pembayaran', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: AppColors.coffeeDark)),
+                Text(CurrencyFormatter.format(o.total), style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: AppColors.statusGreen)),
+              ],
+            ),
+            const SizedBox(height: 32),
+            Row(
+              children: [
+                Expanded(
+                  child: ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.goldBrown,
+                      foregroundColor: AppColors.coffeeDark,
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    ),
+                    icon: const Icon(Icons.print_rounded),
+                    label: const Text('Cetak Struk', style: TextStyle(fontWeight: FontWeight.w800)),
+                    onPressed: () {
+                      showDialog(
+                        context: context,
+                        builder: (c) => AlertDialog(
+                          title: const Text('Mencetak Struk...'),
+                          content: const Text('Simulasi cetak struk via thermal printer bluetooth berhasil.'),
+                          actions: [
+                            TextButton(onPressed: () => Navigator.pop(c), child: const Text('OK', style: TextStyle(color: AppColors.coffeeBrown)))
+                          ],
+                        )
+                      );
+                    },
+                  ),
+                ),
+                if (canVoid) ...[
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: _isLoading 
+                      ? const Center(child: CircularProgressIndicator())
+                      : ElevatedButton.icon(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppColors.statusRed,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 16),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        ),
+                        icon: const Icon(Icons.cancel_rounded),
+                        label: const Text('Void Pesanan', style: TextStyle(fontWeight: FontWeight.w800)),
+                        onPressed: _voidOrder,
+                      ),
+                  ),
+                ]
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }

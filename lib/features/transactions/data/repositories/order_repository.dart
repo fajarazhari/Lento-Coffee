@@ -28,16 +28,6 @@ class OrderRepository {
       final withId = order.copyWith();
       await docRef.set(withId.toFirestore());
 
-      // Write items subcollection
-      final batch = firestore.batch();
-      for (final item in order.items) {
-        final itemRef = firestore
-            .collection(FirestorePaths.orderItems(docRef.id))
-            .doc();
-        batch.set(itemRef, item.toFirestore());
-      }
-      await batch.commit();
-
       return Right(docRef.id);
     } catch (e) {
       return Left(ServerFailure(e.toString()));
@@ -50,10 +40,18 @@ class OrderRepository {
     required PaymentMethod method,
     required double paidAmount,
     required double total,
+    required List<OrderItemModel> items,
   }) async {
     try {
+      final docSnap = await _orders.doc(orderId).get();
+      if (!docSnap.exists) throw Exception('Order not found');
+      final data = docSnap.data() as Map<String, dynamic>;
+      final shiftId = data['shiftId'] as String?;
+
       final changeDue = paidAmount - total;
-      await _orders.doc(orderId).update({
+      final batch = firestore.batch();
+
+      batch.update(_orders.doc(orderId), {
         'status':        OrderStatus.paid.label,
         'kdsStatus':     KdsStatus.newOrder.label,
         'paymentMethod': method.label,
@@ -63,7 +61,8 @@ class OrderRepository {
       });
 
       // Write payment document
-      await firestore.collection(FirestorePaths.payments).add({
+      final paymentRef = firestore.collection(FirestorePaths.payments).doc();
+      batch.set(paymentRef, {
         'orderId':     orderId,
         'method':      method.label,
         'amount':      total,
@@ -72,6 +71,32 @@ class OrderRepository {
         'status':      'Success',
         'createdAt':   FieldValue.serverTimestamp(),
       });
+
+      // Increment shift revenue if applicable
+      if (shiftId != null && shiftId.isNotEmpty) {
+        final shiftRef = firestore.collection(FirestorePaths.shifts).doc(shiftId);
+        if (method == PaymentMethod.cash) {
+          batch.update(shiftRef, {
+            'totalCashRevenue': FieldValue.increment(total),
+            'totalOrders': FieldValue.increment(1),
+          });
+        } else {
+          batch.update(shiftRef, {
+            'totalNonCashRevenue': FieldValue.increment(total),
+            'totalOrders': FieldValue.increment(1),
+          });
+        }
+      }
+
+      // Increment salesCount for each product purchased
+      for (final item in items) {
+        final prodRef = firestore.collection(FirestorePaths.products).doc(item.productId);
+        batch.update(prodRef, {
+          'salesCount': FieldValue.increment(item.quantity),
+        });
+      }
+
+      await batch.commit();
 
       return const Right(unit);
     } catch (e) {
@@ -195,6 +220,21 @@ class OrderRepository {
         'isPriority': isPriority,
         'updatedAt':  FieldValue.serverTimestamp(),
       });
+      return const Right(unit);
+    } catch (e) {
+      return Left(ServerFailure(e.toString()));
+    }
+  }
+
+  // ── Utility: Clean Demo Orders ─────────────────────────────────────────────
+  Future<Either<Failure, Unit>> cleanDemoOrders() async {
+    try {
+      final snap = await firestore.collectionGroup('orders').where('cashierId', isEqualTo: 'demo').get();
+      final batch = firestore.batch();
+      for (var doc in snap.docs) {
+        batch.delete(doc.reference);
+      }
+      await batch.commit();
       return const Right(unit);
     } catch (e) {
       return Left(ServerFailure(e.toString()));

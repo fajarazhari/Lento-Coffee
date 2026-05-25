@@ -24,7 +24,8 @@ class ShiftModel extends Equatable {
     required this.status,
     required this.openedAt,
     this.closingCash,
-    this.totalRevenue = 0,
+    this.totalCashRevenue = 0,
+    this.totalNonCashRevenue = 0,
     this.totalOrders = 0,
     this.totalRefunds = 0,
     this.cashIn = 0,
@@ -41,7 +42,8 @@ class ShiftModel extends Equatable {
   final String cashierName;
   final double openingCash;
   final double? closingCash;
-  final double totalRevenue;
+  final double totalCashRevenue;
+  final double totalNonCashRevenue;
   final int totalOrders;
   final double totalRefunds;
   final double cashIn;
@@ -54,7 +56,7 @@ class ShiftModel extends Equatable {
   final DateTime? closedAt;
 
   double get expectedCash =>
-      openingCash + cashIn - cashOut + totalRevenue;
+      openingCash + cashIn - cashOut + totalCashRevenue;
 
   factory ShiftModel.fromFirestore(DocumentSnapshot doc) {
     final data = doc.data() as Map<String, dynamic>;
@@ -65,7 +67,8 @@ class ShiftModel extends Equatable {
       cashierName:  data['cashierName']   as String? ?? '',
       openingCash:  (data['openingCash']  as num?)?.toDouble() ?? 0,
       closingCash:  (data['closingCash']  as num?)?.toDouble(),
-      totalRevenue: (data['totalRevenue'] as num?)?.toDouble() ?? 0,
+      totalCashRevenue: (data['totalCashRevenue'] as num?)?.toDouble() ?? 0,
+      totalNonCashRevenue: (data['totalNonCashRevenue'] as num?)?.toDouble() ?? 0,
       totalOrders:  data['totalOrders']   as int? ?? 0,
       totalRefunds: (data['totalRefunds'] as num?)?.toDouble() ?? 0,
       cashIn:       (data['cashIn']       as num?)?.toDouble() ?? 0,
@@ -88,7 +91,8 @@ class ShiftModel extends Equatable {
     'cashierName':  cashierName,
     'openingCash':  openingCash,
     'closingCash':  closingCash,
-    'totalRevenue': totalRevenue,
+    'totalCashRevenue': totalCashRevenue,
+    'totalNonCashRevenue': totalNonCashRevenue,
     'totalOrders':  totalOrders,
     'totalRefunds': totalRefunds,
     'cashIn':       cashIn,
@@ -102,7 +106,7 @@ class ShiftModel extends Equatable {
   };
 
   @override
-  List<Object?> get props => [id, cashierId, status, totalRevenue];
+  List<Object?> get props => [id, cashierId, status, totalCashRevenue, totalNonCashRevenue];
 }
 
 class CashTransactionModel extends Equatable {

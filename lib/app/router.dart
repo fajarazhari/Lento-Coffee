@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
+import '../features/auth/data/models/app_user_model.dart';
 import '../features/auth/presentation/screens/auth_screen.dart';
 import '../features/auth/presentation/providers/auth_provider.dart';
 import '../features/pos/presentation/screens/pos_screen.dart';
@@ -28,15 +29,22 @@ GoRouter appRouter(AppRouterRef ref) {
     debugLogDiagnostics: false,
     redirect: (context, state) {
       // ── Demo mode guard ────────────────────────────────────────────────────
-      // Checks demoRoleNotifier (set when user taps a role button on AuthScreen).
-      // Once Firebase is configured, replace this with:
-      //   final authState = ref.watch(authStateChangesProvider);
-      //   final isLoggedIn = authState.valueOrNull != null;
-      final isLoggedIn = demoRoleNotifier.value.isNotEmpty;
-      final goingToAuth = state.matchedLocation == AppRoutes.auth;
+      // For demo purposes, we are bypassing Firebase Auth.
+      // Checks demoUserNotifier (set when user taps an avatar on AuthScreen).
+      // Replace with real auth state (e.g. reading from authStateChangesProvider).
+      
+      final isLoggedIn = demoUserNotifier.value != null;
+      final isAuthRoute = state.uri.path == AppRoutes.auth;
 
-      if (!isLoggedIn && !goingToAuth) return AppRoutes.auth;
-      // Don't redirect away from auth if not logged in — let the user log in
+      if (!isLoggedIn && !isAuthRoute) {
+        return AppRoutes.auth;
+      }
+      if (isLoggedIn && isAuthRoute) {
+        if (demoUserNotifier.value?.role == UserRole.barista) {
+          return AppRoutes.kds;
+        }
+        return AppRoutes.pos;
+      }
       return null;
     },
     routes: [

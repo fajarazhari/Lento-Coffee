@@ -1,6 +1,8 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:equatable/equatable.dart';
 
+import '../../../../core/utils/id_generator.dart';
+
 enum OrderStatus  { draft, paid, brewing, ready, completed, cancelled }
 enum KdsStatus    { newOrder, brewing, ready, done }
 enum PaymentMethod { cash, qris, debitCard, transfer }
@@ -75,10 +77,9 @@ class OrderItemModel extends Equatable {
   final List<String> addons;
   final String notes;
 
-  factory OrderItemModel.fromFirestore(DocumentSnapshot doc) {
-    final data = doc.data() as Map<String, dynamic>;
+  factory OrderItemModel.fromMap(Map<String, dynamic> data, {String? id}) {
     return OrderItemModel(
-      id:          doc.id,
+      id:          id ?? data['id'] as String? ?? IdGenerator.offlineId('item'),
       productId:   data['productId']   as String? ?? '',
       productName: data['productName'] as String? ?? '',
       category:    data['category']    as String? ?? '',
@@ -95,7 +96,8 @@ class OrderItemModel extends Equatable {
     );
   }
 
-  Map<String, dynamic> toFirestore() => {
+  Map<String, dynamic> toMap() => {
+    'id':          id,
     'productId':   productId,
     'productName': productName,
     'category':    category,
@@ -177,7 +179,7 @@ class OrderModel extends Equatable {
   final DateTime? completedAt;
   final DateTime createdAt;
   final DateTime? updatedAt;
-  final List<OrderItemModel> items; // populated client-side from subcollection
+  final List<OrderItemModel> items;
 
   factory OrderModel.fromFirestore(DocumentSnapshot doc) {
     final data = doc.data() as Map<String, dynamic>;
@@ -211,6 +213,7 @@ class OrderModel extends Equatable {
       completedAt:    (data['completedAt']   as Timestamp?)?.toDate(),
       createdAt:      (data['createdAt']     as Timestamp?)?.toDate() ?? DateTime.now(),
       updatedAt:      (data['updatedAt']     as Timestamp?)?.toDate(),
+      items:          (data['items'] as List? ?? []).map((e) => OrderItemModel.fromMap(e as Map<String, dynamic>)).toList(),
     );
   }
 
@@ -242,6 +245,7 @@ class OrderModel extends Equatable {
     'completedAt':    completedAt   != null ? Timestamp.fromDate(completedAt!)   : null,
     'createdAt':      FieldValue.serverTimestamp(),
     'updatedAt':      FieldValue.serverTimestamp(),
+    'items':          items.map((i) => i.toMap()).toList(),
   };
 
   OrderModel copyWith({

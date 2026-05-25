@@ -4,17 +4,23 @@ import 'package:go_router/go_router.dart';
 import '../../app/theme/app_colors.dart';
 import '../../app/router.dart';
 
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../features/auth/data/models/app_user_model.dart';
+import '../../features/auth/presentation/screens/auth_screen.dart';
+import '../../features/shift/presentation/providers/shift_provider.dart';
+import '../../shared/widgets/lento_button.dart';
+
 /// Shell widget that wraps all pages requiring the sidebar + top bar.
 /// Mirrors the CollapsibleSidebar + TopBar from MainActivity.kt.
-class PosShell extends StatefulWidget {
+class PosShell extends ConsumerStatefulWidget {
   const PosShell({super.key, required this.child});
   final Widget child;
 
   @override
-  State<PosShell> createState() => _PosShellState();
+  ConsumerState<PosShell> createState() => _PosShellState();
 }
 
-class _PosShellState extends State<PosShell> {
+class _PosShellState extends ConsumerState<PosShell> {
   bool _sidebarExpanded = true;
   final _sidebarWidth    = 240.0;
   final _sidebarCollapsed = 72.0;
@@ -34,6 +40,13 @@ class _PosShellState extends State<PosShell> {
   @override
   Widget build(BuildContext context) {
     final currentLocation = GoRouterState.of(context).matchedLocation;
+    final user = demoUserNotifier.value;
+    
+    // We only watch shift state if it's a cashier
+    final isCashier = user != null && user.role == UserRole.cashier;
+    final hasShift = isCashier ? ref.watch(activeShiftProvider).valueOrNull != null : true;
+    
+    final bool showGuard = isCashier && !hasShift && currentLocation != AppRoutes.shift;
 
     return Scaffold(
       backgroundColor: AppColors.warmCream,
@@ -57,12 +70,47 @@ class _PosShellState extends State<PosShell> {
                   child: _Sidebar(
                     isExpanded: _sidebarExpanded,
                     currentRoute: currentLocation,
-                    items: _navItems,
+                    items: user?.role == UserRole.barista 
+                        ? _navItems.where((i) => i.route == AppRoutes.kds || i.route == AppRoutes.settings).toList()
+                        : _navItems,
                     onTap: (route) => context.go(route),
                   ),
                 ),
-                // Page content
-                Expanded(child: widget.child),
+                // Page content with Guard
+                Expanded(
+                  child: Stack(
+                    children: [
+                      widget.child,
+                      if (showGuard)
+                        Container(
+                          color: AppColors.coffeeDark.withOpacity(0.9),
+                          alignment: Alignment.center,
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              const Icon(Icons.lock_person_rounded, size: 72, color: AppColors.goldBrown),
+                              const SizedBox(height: 24),
+                              const Text('Akses Dibatasi', style: TextStyle(fontSize: 28, fontWeight: FontWeight.w900, color: AppColors.pureWhite)),
+                              const SizedBox(height: 8),
+                              const Text('Anda wajib membuka laci (Shift) sebelum dapat menggunakan menu ini.',
+                                style: TextStyle(color: AppColors.warmCream, fontSize: 16)),
+                              const SizedBox(height: 32),
+                              ElevatedButton.icon(
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: AppColors.goldBrown,
+                                  foregroundColor: AppColors.coffeeDark,
+                                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                                ),
+                                icon: const Icon(Icons.play_arrow_rounded),
+                                label: const Text('Buka Shift Sekarang', style: TextStyle(fontWeight: FontWeight.w800)),
+                                onPressed: () => context.go(AppRoutes.shift),
+                              )
+                            ],
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
               ],
             ),
           ),

@@ -694,7 +694,15 @@ class _ProductFormDialogState extends ConsumerState<_ProductFormDialog>
       name.toLowerCase().replaceAll(' ', '_').replaceAll(RegExp(r'[^a-z0-9_]'), '');
 
   Future<void> _save() async {
-    if (!_formKey.currentState!.validate()) return;
+    if (_formKey.currentState?.validate() == false) {
+      _tabController.animateTo(0);
+      return;
+    }
+    // If form is unmounted (in background tab), do a manual basic check
+    if (_nameCtrl.text.trim().isEmpty) {
+      _tabController.animateTo(0);
+      return;
+    }
     setState(() => _saving = true);
 
     final repo = ref.read(productRepositoryProvider);
