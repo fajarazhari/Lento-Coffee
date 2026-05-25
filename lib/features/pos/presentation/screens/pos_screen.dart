@@ -12,6 +12,7 @@ import '../../../products/presentation/providers/products_provider.dart';
 import '../../../transactions/data/models/order_model.dart';
 import '../../../transactions/data/repositories/order_repository.dart';
 import '../../../transactions/presentation/providers/orders_provider.dart';
+import '../../../inventory/presentation/providers/inventory_provider.dart';
 
 import '../../../auth/data/models/app_user_model.dart';
 import '../../../auth/presentation/screens/auth_screen.dart';
@@ -1041,7 +1042,8 @@ class _OwnerPosDashboard extends ConsumerWidget {
           activeProds.sort((a, b) => b.salesCount.compareTo(a.salesCount));
           final bestSellers = activeProds.take(4).toList();
 
-          final lowStockItems = products.where((p) => p.status == ProductStatus.soldOut).toList();
+          final lowStockProducts = products.where((p) => p.status == ProductStatus.soldOut).toList();
+          final lowStockIngredients = ref.watch(lowStockIngredientsProvider).valueOrNull ?? [];
           final highlightItem = activeProds.isNotEmpty ? activeProds.first : null;
 
           return SingleChildScrollView(
@@ -1134,7 +1136,7 @@ class _OwnerPosDashboard extends ConsumerWidget {
                 ],
 
                 // 3. Low Stock / Sold Out Warnings
-                if (lowStockItems.isNotEmpty) ...[
+                if (lowStockProducts.isNotEmpty || lowStockIngredients.isNotEmpty) ...[
                   Row(
                     children: [
                       const Icon(Icons.warning_amber_rounded, color: AppColors.notificationBadge, size: 28),
@@ -1145,31 +1147,58 @@ class _OwnerPosDashboard extends ConsumerWidget {
                   const SizedBox(height: 16),
                   Wrap(
                     spacing: 16, runSpacing: 16,
-                    children: lowStockItems.map((p) => Container(
-                      width: 250,
-                      padding: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(
-                        color: AppColors.notificationBadge.withOpacity(0.1),
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: AppColors.notificationBadge.withOpacity(0.5)),
-                      ),
-                      child: Row(
-                        children: [
-                          Text(p.emoji, style: const TextStyle(fontSize: 32)),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(p.name, style: const TextStyle(fontWeight: FontWeight.w800, color: AppColors.notificationBadge)),
-                                const SizedBox(height: 4),
-                                const Text('Status: Sold Out', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.coffeeDark)),
-                              ],
-                            ),
-                          )
-                        ],
-                      ),
-                    )).toList(),
+                    children: [
+                      ...lowStockProducts.map((p) => Container(
+                        width: 250,
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          color: AppColors.notificationBadge.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: AppColors.notificationBadge.withOpacity(0.5)),
+                        ),
+                        child: Row(
+                          children: [
+                            Text(p.emoji, style: const TextStyle(fontSize: 32)),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(p.name, style: const TextStyle(fontWeight: FontWeight.w800, color: AppColors.notificationBadge)),
+                                  const SizedBox(height: 4),
+                                  const Text('Status: Sold Out', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.coffeeDark)),
+                                ],
+                              ),
+                            )
+                          ],
+                        ),
+                      )),
+                      ...lowStockIngredients.map((i) => Container(
+                        width: 250,
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          color: AppColors.statusOrange.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: AppColors.statusOrange.withOpacity(0.5)),
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.inventory_2_outlined, color: AppColors.statusOrange, size: 32),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(i.name, style: const TextStyle(fontWeight: FontWeight.w800, color: AppColors.statusOrange)),
+                                  const SizedBox(height: 4),
+                                  Text('Sisa: ${i.currentStock} ${i.unit}', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.coffeeDark)),
+                                ],
+                              ),
+                            )
+                          ],
+                        ),
+                      )),
+                    ],
                   )
                 ]
               ],
