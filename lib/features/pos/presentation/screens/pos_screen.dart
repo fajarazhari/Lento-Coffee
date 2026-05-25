@@ -390,8 +390,25 @@ class _CartPanelState extends ConsumerState<_CartPanel> {
     super.dispose();
   }
 
-  void _processPayment() {
+  Future<void> _processPayment() async {
     if (widget.cart.isEmpty) return;
+
+    // Check stock first
+    final repo = ref.read(inventoryRepositoryProvider);
+    final errorMsg = await repo.checkStockAvailability(widget.cart.items);
+    if (errorMsg != null) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(errorMsg, style: const TextStyle(fontWeight: FontWeight.w700)),
+          backgroundColor: AppColors.statusRed,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
+
+    if (!mounted) return;
     showDialog(
       context: context,
       builder: (_) => _PaymentDialog(cart: widget.cart),

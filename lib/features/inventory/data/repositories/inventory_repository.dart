@@ -147,6 +147,86 @@ class InventoryRepository {
       return Left(ServerFailure(e.toString()));
     }
   }
+  // ── Check stock availability before payment ─────────────────────────────────
+  /// Returns a string error message if stock is insufficient, or null if all good.
+  Future<String?> checkStockAvailability(List<OrderItemModel> items) async {
+    // 1. Fetch all recipes matching ordered product names and addons
+    final productNames = <String>{};
+    for (final item in items) {
+      productNames.add(item.productName);
+      productNames.addAll(item.addons);
+    }
+    
+    final recipeSnaps = await Future.wait(
+      productNames.map((name) => _recipes.doc(_slugify(name)).get()),
+    );
+
+    // Build map: productName → RecipeModel
+    final recipeMap = <String, RecipeModel>{};
+    for (final snap in recipeSnaps) {
+      if (snap.exists) {
+        final recipe = RecipeModel.fromFirestore(snap);
+        recipeMap[recipe.productName] = recipe;
+      }
+    }
+
+    if (recipeMap.isEmpty) return null; // No recipes configured yet, allow checkout
+
+    // 2. Compute total deductions: ingredientName → totalQty
+    final deductions = <String, double>{};
+    for (final item in items) {
+      // Main product recipe
+      final mainRecipe = recipeMap[item.productName];
+      if (mainRecipe != null) {
+        for (final ri in mainRecipe.ingredients) {
+          deductions[ri.ingredientName] =
+              (deductions[ri.ingredientName] ?? 0) +
+                  ri.quantity * item.quantity;
+        }
+      }
+      
+      // Addon recipes
+      for (final addon in item.addons) {
+        final addonRecipe = recipeMap[addon];
+        if (addonRecipe != null) {
+          for (final ri in addonRecipe.ingredients) {
+            deductions[ri.ingredientName] =
+                (deductions[ri.ingredientName] ?? 0) +
+                    ri.quantity * item.quantity;
+          }
+        }
+      }
+    }
+
+    if (deductions.isEmpty) return null;
+
+    // 3. Fetch matching ingredients by name
+    final ingredientNames = deductions.keys.toList();
+    final ingSnap = await _ingredients
+        .where('name', whereIn: ingredientNames.take(30).toList())
+        .get();
+
+    final ingredients = {
+      for (final doc in ingSnap.docs)
+        (doc.data() as Map<String, dynamic>)['name'] as String:
+            IngredientModel.fromFirestore(doc),
+    };
+
+    // 4. Compare deductions vs current stock
+    for (final entry in deductions.entries) {
+      final ingName = entry.key;
+      final requiredQty = entry.value;
+      final ing = ingredients[ingName];
+
+      if (ing == null) continue;
+
+      if (ing.currentStock < requiredQty) {
+        return 'Stok $ingName tidak cukup! Sisa: ${ing.currentStock.toStringAsFixed(ing.currentStock % 1 == 0 ? 0 : 1)} ${ing.unit}, Butuh: ${requiredQty.toStringAsFixed(requiredQty % 1 == 0 ? 0 : 1)} ${ing.unit}';
+      }
+    }
+
+    return null; // All good
+  }
 
   // ── Deduct stock when order is placed ─────────────────────────────────────
   /// Called after payment is confirmed.
