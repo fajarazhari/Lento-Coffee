@@ -18,6 +18,7 @@ class TransactionsScreen extends ConsumerStatefulWidget {
 
 class _TransactionsScreenState extends ConsumerState<TransactionsScreen> {
   String _searchQuery = '';
+  DateTime? _selectedDate;
 
   @override
   Widget build(BuildContext context) {
@@ -50,6 +51,26 @@ class _TransactionsScreenState extends ConsumerState<TransactionsScreen> {
                     },
                   ),
                 const SizedBox(width: 16),
+                if (_selectedDate != null)
+                  ActionChip(
+                    label: Text('${_selectedDate!.day}/${_selectedDate!.month}/${_selectedDate!.year}'),
+                    onPressed: () => setState(() => _selectedDate = null),
+                    avatar: const Icon(Icons.close_rounded, size: 16),
+                  ),
+                IconButton(
+                  icon: const Icon(Icons.date_range_rounded, color: AppColors.coffeeBrown),
+                  tooltip: 'Filter Tanggal',
+                  onPressed: () async {
+                    final date = await showDatePicker(
+                      context: context,
+                      initialDate: _selectedDate ?? DateTime.now(),
+                      firstDate: DateTime(2023),
+                      lastDate: DateTime.now(),
+                    );
+                    if (date != null) setState(() => _selectedDate = date);
+                  },
+                ),
+                const SizedBox(width: 8),
                 SizedBox(
                   width: 240, height: 38,
                   child: TextField(
@@ -93,6 +114,13 @@ class _TransactionsScreenState extends ConsumerState<TransactionsScreen> {
                   Center(child: Text('Error: $e')),
               data: (allOrders) {
                 final orders = allOrders.where((o) {
+                  if (_selectedDate != null) {
+                    if (o.createdAt.year != _selectedDate!.year ||
+                        o.createdAt.month != _selectedDate!.month ||
+                        o.createdAt.day != _selectedDate!.day) {
+                      return false;
+                    }
+                  }
                   final q = _searchQuery;
                   if (q.isEmpty) return true;
                   return o.orderNumber.toLowerCase().contains(q) || 
@@ -271,10 +299,44 @@ class _OrderDetailDialogState extends State<_OrderDetailDialog> {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
+                const Text('Subtotal', style: TextStyle(color: AppColors.coffeeMuted)),
+                Text(CurrencyFormatter.format(o.subtotal), style: const TextStyle(fontWeight: FontWeight.w700)),
+              ],
+            ),
+            const SizedBox(height: 4),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text('Pajak (Tax)', style: TextStyle(color: AppColors.coffeeMuted)),
+                Text(CurrencyFormatter.format(o.taxAmount), style: const TextStyle(fontWeight: FontWeight.w700)),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
                 const Text('Total Pembayaran', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: AppColors.coffeeDark)),
                 Text(CurrencyFormatter.format(o.total), style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: AppColors.statusGreen)),
               ],
             ),
+            if (o.paymentMethod == PaymentMethod.cash) ...[
+              const SizedBox(height: 4),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text('Uang Dibayar', style: TextStyle(color: AppColors.coffeeMuted)),
+                  Text(CurrencyFormatter.format(o.paidAmount), style: const TextStyle(fontWeight: FontWeight.w700)),
+                ],
+              ),
+              const SizedBox(height: 4),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text('Kembalian', style: TextStyle(color: AppColors.coffeeMuted)),
+                  Text(CurrencyFormatter.format(o.changeDue), style: const TextStyle(fontWeight: FontWeight.w700, color: AppColors.statusOrange)),
+                ],
+              ),
+            ],
             const SizedBox(height: 32),
             Row(
               children: [

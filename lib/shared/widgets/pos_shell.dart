@@ -31,7 +31,7 @@ class _PosShellState extends ConsumerState<PosShell> {
     (label: 'Products & Menu',     icon: Icons.restaurant_menu_rounded,    route: AppRoutes.products),
     (label: 'Inventory',           icon: Icons.inventory_2_rounded,        route: AppRoutes.inventory),
     (label: 'Sales Reports',       icon: Icons.analytics_rounded,          route: AppRoutes.reports),
-    (label: 'Cashier Shift',       icon: Icons.badge_rounded,              route: AppRoutes.shift),
+    (label: 'Shift Karyawan',      icon: Icons.badge_rounded,              route: AppRoutes.shift),
     (label: 'KDS & Barista Queue', icon: Icons.local_cafe_rounded,         route: AppRoutes.kds),
     (label: 'Customer Display',    icon: Icons.tv_rounded,                 route: AppRoutes.customerBoard),
     (label: 'Settings',            icon: Icons.settings_rounded,           route: AppRoutes.settings),
@@ -55,6 +55,8 @@ class _PosShellState extends ConsumerState<PosShell> {
           // ── Top Bar ──────────────────────────────────────────────────────
           _TopBar(
             isSidebarExpanded: _sidebarExpanded,
+            isCashier: isCashier,
+            hasShift: hasShift,
             onToggleSidebar: () => setState(() => _sidebarExpanded = !_sidebarExpanded),
           ),
           // ── Body (Sidebar + Content) ──────────────────────────────────────
@@ -124,10 +126,14 @@ class _PosShellState extends ConsumerState<PosShell> {
 class _TopBar extends StatelessWidget {
   const _TopBar({
     required this.isSidebarExpanded,
+    required this.isCashier,
+    required this.hasShift,
     required this.onToggleSidebar,
   });
 
   final bool isSidebarExpanded;
+  final bool isCashier;
+  final bool hasShift;
   final VoidCallback onToggleSidebar;
 
   @override
@@ -188,6 +194,31 @@ class _TopBar extends StatelessWidget {
             icon: const Icon(Icons.notifications_rounded),
             color: AppColors.coffeeBrown,
             onPressed: () {},
+          ),
+          const SizedBox(width: 8),
+          // Logout Button
+          Container(
+            decoration: BoxDecoration(
+              color: AppColors.statusOrange.withValues(alpha: 0.1),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: IconButton(
+              icon: const Icon(Icons.logout_rounded, color: AppColors.statusOrange),
+              tooltip: 'Keluar (Logout)',
+              onPressed: () {
+                if (isCashier && hasShift) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Anda tidak bisa keluar. Harap tutup shift terlebih dahulu.'),
+                      backgroundColor: AppColors.statusOrange,
+                    ),
+                  );
+                  return;
+                }
+                demoUserNotifier.value = null;
+                context.go(AppRoutes.auth);
+              },
+            ),
           ),
         ],
       ),

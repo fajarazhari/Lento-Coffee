@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 import '../../../../app/router.dart';
 import '../../../../app/theme/app_colors.dart';
@@ -17,6 +18,7 @@ final List<AppUserModel> mockUsers = [
     name: 'Budi (Pagi)',
     email: 'budi@lento.com',
     role: UserRole.cashier,
+    pin: '123456',
     themeColor: '#4CAF50', // Green
   ),
   const AppUserModel(
@@ -24,6 +26,7 @@ final List<AppUserModel> mockUsers = [
     name: 'Siti (Siang)',
     email: 'siti@lento.com',
     role: UserRole.cashier,
+    pin: '123456',
     themeColor: '#FF9800', // Orange
   ),
   const AppUserModel(
@@ -31,6 +34,7 @@ final List<AppUserModel> mockUsers = [
     name: 'Fajar (Owner)',
     email: 'fajar@lento.com',
     role: UserRole.owner,
+    pin: '123456',
     themeColor: '#D32F2F', // Red
   ),
   const AppUserModel(
@@ -38,6 +42,7 @@ final List<AppUserModel> mockUsers = [
     name: 'Dimas (Barista)',
     email: 'dimas@lento.com',
     role: UserRole.barista,
+    pin: '123456',
     themeColor: '#795548', // Brown
   ),
 ];
@@ -57,6 +62,85 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
     } else {
       context.go(AppRoutes.pos);
     }
+  }
+
+  Future<void> _showPinDialog(AppUserModel user) async {
+    final pinController = TextEditingController();
+    bool hasError = false;
+
+    await showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setState) {
+            return AlertDialog(
+              backgroundColor: AppColors.pureWhite,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              title: const Text('Masukkan PIN', style: TextStyle(color: AppColors.coffeeBrown, fontWeight: FontWeight.w800)),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text('Login sebagai ${user.name}', style: const TextStyle(color: AppColors.coffeeMuted)),
+                  const SizedBox(height: 16),
+                  TextField(
+                    controller: pinController,
+                    obscureText: true,
+                    keyboardType: TextInputType.number,
+                    maxLength: 6,
+                    autofocus: true,
+                    decoration: InputDecoration(
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8),
+                        borderSide: const BorderSide(color: AppColors.coffeeBrown, width: 2),
+                      ),
+                      labelText: 'PIN (6 Digit)',
+                      labelStyle: const TextStyle(color: AppColors.coffeeMuted),
+                      errorText: hasError ? 'PIN salah! Coba lagi.' : null,
+                    ),
+                    onSubmitted: (val) {
+                      final expectedPin = user.pin ?? '123456';
+                      if (val == expectedPin) {
+                        Navigator.pop(context);
+                        _enterDemoMode(user);
+                      } else {
+                        setState(() => hasError = true);
+                        pinController.clear();
+                      }
+                    },
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('Batal', style: TextStyle(color: AppColors.coffeeMuted, fontWeight: FontWeight.w700)),
+                ),
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.coffeeBrown,
+                    foregroundColor: AppColors.warmCream,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  ),
+                  onPressed: () {
+                    final expectedPin = user.pin ?? '123456';
+                    if (pinController.text == expectedPin) {
+                      Navigator.pop(context);
+                      _enterDemoMode(user);
+                    } else {
+                      setState(() => hasError = true);
+                      pinController.clear();
+                    }
+                  },
+                  child: const Text('Masuk', style: TextStyle(fontWeight: FontWeight.w800)),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
   }
 
   @override
@@ -90,7 +174,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                     ),
                   ),
                   const SizedBox(height: 8),
-                  const Text('Select your profile to continue (Demo Mode)',
+                  const Text('Pilih profil untuk masuk',
                     style: TextStyle(
                       fontSize: 14, color: AppColors.coffeeMuted,
                       fontWeight: FontWeight.w600,
@@ -99,21 +183,35 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                   const SizedBox(height: 40),
 
                   // ── User Selection ──────────────────────────────────────
-                  GridView.builder(
-                    shrinkWrap: true,
-                    physics: const NeverScrollableScrollPhysics(),
-                    gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                      crossAxisCount: 2,
-                      mainAxisSpacing: 16,
-                      crossAxisSpacing: 16,
-                      childAspectRatio: 2.5,
-                    ),
-                    itemCount: mockUsers.length,
-                    itemBuilder: (context, index) {
-                      final user = mockUsers[index];
-                      return _UserCard(
-                        user: user,
-                        onTap: () => _enterDemoMode(user),
+                  StreamBuilder<QuerySnapshot>(
+                    stream: FirebaseFirestore.instance.collection('users').snapshots(),
+                    builder: (context, snapshot) {
+                      if (!snapshot.hasData) {
+                        return const Padding(
+                          padding: EdgeInsets.all(32),
+                          child: CircularProgressIndicator(),
+                        );
+                      }
+                      
+                      final users = snapshot.data!.docs.map((d) => AppUserModel.fromFirestore(d)).toList();
+                      
+                      return GridView.builder(
+                        shrinkWrap: true,
+                        physics: const NeverScrollableScrollPhysics(),
+                        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                          crossAxisCount: 2,
+                          mainAxisSpacing: 16,
+                          crossAxisSpacing: 16,
+                          childAspectRatio: 2.5,
+                        ),
+                        itemCount: users.length,
+                        itemBuilder: (context, index) {
+                          final user = users[index];
+                          return _UserCard(
+                            user: user,
+                            onTap: () => _showPinDialog(user),
+                          );
+                        },
                       );
                     },
                   ),

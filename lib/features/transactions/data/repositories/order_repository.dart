@@ -106,7 +106,7 @@ class OrderRepository {
 
   // ── Advance KDS status ─────────────────────────────────────────────────────
   Future<Either<Failure, Unit>> advanceKdsStatus(
-      String orderId, KdsStatus next) async {
+      String orderId, KdsStatus next, {String? baristaId, String? baristaName}) async {
     try {
       final Map<String, dynamic> updates = {
         'kdsStatus': next.label,
@@ -114,6 +114,8 @@ class OrderRepository {
       };
       if (next == KdsStatus.brewing) {
         updates['brewStartedAt'] = FieldValue.serverTimestamp();
+        if (baristaId != null) updates['baristaId'] = baristaId;
+        if (baristaName != null) updates['baristaName'] = baristaName;
       } else if (next == KdsStatus.ready) {
         updates['readyAt'] = FieldValue.serverTimestamp();
       } else if (next == KdsStatus.done) {

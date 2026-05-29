@@ -8,6 +8,7 @@ class SeedService {
 
   static Future<void> seedAll(BuildContext context) async {
     try {
+      await _seedUsers();
       await _seedSettings();
       await _seedProducts();
       await _seedIngredients();
@@ -41,6 +42,9 @@ class SeedService {
 
   // ── Settings ────────────────────────────────────────────────────────────────
   static Future<void> _seedSettings() async {
+    final snap = await _db.collection('settings').doc('global').get();
+    if (snap.exists) return; // Mencegah duplikat/overwrite
+
     await _db.collection('settings').doc('global').set({
       'storeName': 'Lento Coffee',
       'branchName': 'Main Branch',
@@ -59,8 +63,62 @@ class SeedService {
     }, SetOptions(merge: true));
   }
 
+  // ── Users ───────────────────────────────────────────────────────────────────
+  static Future<void> _seedUsers() async {
+    final users = [
+      {
+        'id': 'cashier_1',
+        'name': 'Budi (Pagi)',
+        'email': 'budi@lento.com',
+        'role': 'cashier',
+        'pin': '123456',
+        'themeColor': '#4CAF50',
+      },
+      {
+        'id': 'cashier_2',
+        'name': 'Siti (Siang)',
+        'email': 'siti@lento.com',
+        'role': 'cashier',
+        'pin': '123456',
+        'themeColor': '#FF9800',
+      },
+      {
+        'id': 'owner_1',
+        'name': 'Fajar (Owner)',
+        'email': 'fajar@lento.com',
+        'role': 'owner',
+        'pin': '123456',
+        'themeColor': '#D32F2F',
+      },
+      {
+        'id': 'barista_1',
+        'name': 'Dimas (Barista)',
+        'email': 'dimas@lento.com',
+        'role': 'barista',
+        'pin': '123456',
+        'themeColor': '#795548',
+      },
+    ];
+
+    final batch = _db.batch();
+    for (final u in users) {
+      final ref = _db.collection('users').doc(u['id']);
+      final snap = await ref.get();
+      if (!snap.exists) {
+        batch.set(ref, {
+          ...u,
+          'createdAt': FieldValue.serverTimestamp(),
+        });
+      }
+    }
+    await batch.commit();
+  }
+
   // ── Products ────────────────────────────────────────────────────────────────
   static Future<void> _seedProducts() async {
+    final snap = await _db.collection('products').limit(1).get();
+    if (snap.docs.isNotEmpty) return; // Mencegah duplikat
+
     final products = [
       // Coffee
       _p('Espresso',         'Coffee',     28000, '☕', 'Double shot espresso', 0),
@@ -105,6 +163,9 @@ class SeedService {
 
   // ── Ingredients ─────────────────────────────────────────────────────────────
   static Future<void> _seedIngredients() async {
+    final snap = await _db.collection('ingredients').limit(1).get();
+    if (snap.docs.isNotEmpty) return; // Mencegah duplikat
+
     final ingredients = [
       // Kopi
       _ing('Biji Espresso',       'Kopi',            'g',  5000, 500,  '☕'),
@@ -151,6 +212,9 @@ class SeedService {
 
   // ── Recipes (per 1 serving) ──────────────────────────────────────────────────
   static Future<void> _seedRecipes() async {
+    final snap = await _db.collection('recipes').limit(1).get();
+    if (snap.docs.isNotEmpty) return; // Mencegah duplikat
+
     final recipes = <String, List<Map<String, dynamic>>>{
       // ── Coffee ──────────────────────────────────────────────────────────────
       'Espresso':        [_ri('Biji Espresso', 18, 'g')],

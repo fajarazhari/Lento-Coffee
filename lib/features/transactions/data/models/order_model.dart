@@ -142,6 +142,8 @@ class OrderModel extends Equatable {
     this.paidAmount = 0,
     this.changeDue = 0,
     this.shiftId,
+    this.baristaId,
+    this.baristaName,
     this.notes = '',
     this.isPriority = false,
     this.brewStartedAt,
@@ -172,6 +174,8 @@ class OrderModel extends Equatable {
   final double paidAmount;
   final double changeDue;
   final String? shiftId;
+  final String? baristaId;
+  final String? baristaName;
   final String notes;
   final bool isPriority;
   final DateTime? brewStartedAt;
@@ -206,6 +210,8 @@ class OrderModel extends Equatable {
       paidAmount:     (data['paidAmount']   as num?)?.toDouble() ?? 0,
       changeDue:      (data['changeDue']    as num?)?.toDouble() ?? 0,
       shiftId:        data['shiftId']       as String?,
+      baristaId:      data['baristaId']     as String?,
+      baristaName:    data['baristaName']   as String?,
       notes:          data['notes']         as String? ?? '',
       isPriority:     data['isPriority']    as bool? ?? false,
       brewStartedAt:  (data['brewStartedAt'] as Timestamp?)?.toDate(),
@@ -238,6 +244,8 @@ class OrderModel extends Equatable {
     'paidAmount':     paidAmount,
     'changeDue':      changeDue,
     'shiftId':        shiftId,
+    'baristaId':      baristaId,
+    'baristaName':    baristaName,
     'notes':          notes,
     'isPriority':     isPriority,
     'brewStartedAt':  brewStartedAt != null ? Timestamp.fromDate(brewStartedAt!) : null,
@@ -254,6 +262,8 @@ class OrderModel extends Equatable {
     double? paidAmount,
     double? changeDue,
     PaymentMethod? paymentMethod,
+    String? baristaId,
+    String? baristaName,
     bool? isPriority,
     DateTime? brewStartedAt,
     DateTime? readyAt,
@@ -282,6 +292,8 @@ class OrderModel extends Equatable {
         paidAmount:     paidAmount     ?? this.paidAmount,
         changeDue:      changeDue      ?? this.changeDue,
         shiftId:        shiftId,
+        baristaId:      baristaId      ?? this.baristaId,
+        baristaName:    baristaName    ?? this.baristaName,
         notes:          notes,
         isPriority:     isPriority     ?? this.isPriority,
         brewStartedAt:  brewStartedAt  ?? this.brewStartedAt,

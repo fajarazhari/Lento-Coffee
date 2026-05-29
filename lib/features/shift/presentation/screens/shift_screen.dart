@@ -6,7 +6,9 @@ import '../../../../core/utils/currency_formatter.dart';
 import '../../../../shared/widgets/lento_button.dart';
 import '../../../auth/data/models/app_user_model.dart';
 import '../../../auth/presentation/screens/auth_screen.dart';
+import '../../../transactions/data/models/order_model.dart';
 import '../../data/models/shift_model.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import '../providers/shift_provider.dart';
 
 class ShiftScreen extends ConsumerWidget {
@@ -116,76 +118,219 @@ class _OwnerMonitoringDashboard extends ConsumerWidget {
           ),
         ),
         Expanded(
-          child: shiftsAsync.when(
-            loading: () => const Center(child: CircularProgressIndicator(color: AppColors.coffeeBrown)),
-            error: (e, _) => Center(child: Text('Error: $e')),
-            data: (shifts) {
-              final cashierShifts = shifts.where((s) => !s.cashierId.contains('owner')).toList();
-              if (cashierShifts.isEmpty) {
-                return const Center(child: Text('Tidak ada riwayat shift pada tanggal ini.', style: TextStyle(color: AppColors.coffeeMuted)));
-              }
-              return GridView.builder(
+          child: CustomScrollView(
+            slivers: [
+              // ── Cashier Shifts ──────────────────────────
+              SliverPadding(
                 padding: const EdgeInsets.symmetric(horizontal: 24),
-                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount: 3,
-                  mainAxisSpacing: 16,
-                  crossAxisSpacing: 16,
-                  childAspectRatio: 1.0,
+                sliver: SliverToBoxAdapter(
+                  child: const Text('Shift Kasir', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: AppColors.coffeeDark)),
                 ),
-                itemCount: cashierShifts.length,
-                itemBuilder: (context, index) {
-                  final shift = cashierShifts[index];
-                  final isClosed = shift.status == ShiftStatus.closed;
-                  return Card(
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                    child: Padding(
-                      padding: const EdgeInsets.all(20),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            children: [
-                              CircleAvatar(
-                                backgroundColor: isClosed ? AppColors.coffeeMuted : AppColors.goldBrown,
-                                child: const Icon(Icons.person, color: Colors.white),
+              ),
+              const SliverPadding(padding: EdgeInsets.only(top: 16)),
+              shiftsAsync.when(
+                loading: () => const SliverToBoxAdapter(child: Center(child: CircularProgressIndicator(color: AppColors.coffeeBrown))),
+                error: (e, _) => SliverToBoxAdapter(child: Center(child: Text('Error: $e'))),
+                data: (shifts) {
+                  final cashierShifts = shifts.where((s) => !s.cashierId.contains('owner')).toList();
+                  if (cashierShifts.isEmpty) {
+                    return const SliverToBoxAdapter(
+                      child: Padding(
+                        padding: EdgeInsets.all(24),
+                        child: Text('Tidak ada riwayat shift kasir pada tanggal ini.', style: TextStyle(color: AppColors.coffeeMuted)),
+                      ),
+                    );
+                  }
+                  return SliverPadding(
+                    padding: const EdgeInsets.symmetric(horizontal: 24),
+                    sliver: SliverGrid(
+                      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                        crossAxisCount: 3,
+                        mainAxisSpacing: 16,
+                        crossAxisSpacing: 16,
+                        childAspectRatio: 1.0,
+                      ),
+                      delegate: SliverChildBuilderDelegate(
+                        (context, index) {
+                          final shift = cashierShifts[index];
+                          final isClosed = shift.status == ShiftStatus.closed;
+                          return Card(
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                            child: Padding(
+                              padding: const EdgeInsets.all(20),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    children: [
+                                      CircleAvatar(
+                                        backgroundColor: isClosed ? AppColors.coffeeMuted : AppColors.goldBrown,
+                                        child: const Icon(Icons.person, color: Colors.white),
+                                      ),
+                                      const SizedBox(width: 12),
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            Text(shift.cashierName, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
+                                            Text(isClosed ? 'Selesai: ${_formatTime(shift.closedAt!)}' : 'Aktif sejak ${_formatTime(shift.openedAt)}', style: TextStyle(color: isClosed ? AppColors.statusRed : AppColors.statusGreen, fontSize: 12, fontWeight: FontWeight.w700)),
+                                          ],
+                                        ),
+                                      )
+                                    ],
+                                  ),
+                                  const Spacer(),
+                                  _buildRow('Modal Awal', shift.openingCash),
+                                  const SizedBox(height: 8),
+                                  _buildRow('Omzet Tunai', shift.totalCashRevenue, isBold: true, color: AppColors.statusGreen),
+                                  const SizedBox(height: 8),
+                                  _buildRow('Kas Masuk', shift.cashIn),
+                                  const SizedBox(height: 8),
+                                  _buildRow('Kas Keluar', shift.cashOut),
+                                  if (isClosed) ...[
+                                    const Divider(height: 16),
+                                    _buildRow('Setor Fisik', shift.closingCash ?? 0, isBold: true, color: AppColors.coffeeBrown),
+                                    if ((shift.difference ?? 0) != 0) ...[
+                                      const SizedBox(height: 4),
+                                      _buildRow('Selisih', shift.difference ?? 0, color: (shift.difference ?? 0) < 0 ? AppColors.statusRed : AppColors.statusGreen),
+                                    ]
+                                  ]
+                                ],
                               ),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(shift.cashierName, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
-                                    Text(isClosed ? 'Selesai: ${_formatTime(shift.closedAt!)}' : 'Aktif sejak ${_formatTime(shift.openedAt)}', style: TextStyle(color: isClosed ? AppColors.statusRed : AppColors.statusGreen, fontSize: 12, fontWeight: FontWeight.w700)),
-                                  ],
-                                ),
-                              )
-                            ],
-                          ),
-                          const Spacer(),
-                          _buildRow('Modal Awal', shift.openingCash),
-                          const SizedBox(height: 8),
-                          _buildRow('Omzet Tunai', shift.totalCashRevenue, isBold: true, color: AppColors.statusGreen),
-                          const SizedBox(height: 8),
-                          _buildRow('Kas Masuk', shift.cashIn),
-                          const SizedBox(height: 8),
-                          _buildRow('Kas Keluar', shift.cashOut),
-                          if (isClosed) ...[
-                            const Divider(height: 16),
-                            _buildRow('Setor Fisik', shift.closingCash ?? 0, isBold: true, color: AppColors.coffeeBrown),
-                            if ((shift.difference ?? 0) != 0) ...[
-                              const SizedBox(height: 4),
-                              _buildRow('Selisih', shift.difference ?? 0, color: (shift.difference ?? 0) < 0 ? AppColors.statusRed : AppColors.statusGreen),
-                            ]
-                          ]
-                        ],
+                            ),
+                          );
+                        },
+                        childCount: cashierShifts.length,
                       ),
                     ),
                   );
                 },
-              );
-            },
+              ),
+              const SliverPadding(padding: EdgeInsets.only(top: 32)),
+
+              // ── Barista Activity ──────────────────────────
+              SliverPadding(
+                padding: const EdgeInsets.symmetric(horizontal: 24),
+                sliver: SliverToBoxAdapter(
+                  child: const Text('Aktivitas Barista', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: AppColors.coffeeDark)),
+                ),
+              ),
+              const SliverPadding(padding: EdgeInsets.only(top: 16)),
+              SliverToBoxAdapter(
+                child: StreamBuilder<QuerySnapshot>(
+                  stream: FirebaseFirestore.instance.collection('orders')
+                    .where('createdAt', isGreaterThanOrEqualTo: Timestamp.fromDate(DateTime(selectedDate.year, selectedDate.month, selectedDate.day)))
+                    .where('createdAt', isLessThan: Timestamp.fromDate(DateTime(selectedDate.year, selectedDate.month, selectedDate.day).add(const Duration(days: 1))))
+                    .snapshots(),
+                  builder: (context, snapshot) {
+                    if (snapshot.connectionState == ConnectionState.waiting) {
+                      return const Center(child: CircularProgressIndicator(color: AppColors.coffeeBrown));
+                    }
+                    if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+                      return const Padding(
+                        padding: EdgeInsets.symmetric(horizontal: 24),
+                        child: Text('Tidak ada pesanan pada tanggal ini.', style: TextStyle(color: AppColors.coffeeMuted)),
+                      );
+                    }
+
+                    // Group orders by barista
+                    final orders = snapshot.data!.docs.map((d) => OrderModel.fromFirestore(d)).toList();
+                    final Map<String, List<OrderModel>> baristaGroups = {};
+                    final Map<String, String> baristaNames = {};
+                    
+                    for (var order in orders) {
+                      if (order.baristaId != null && order.baristaId!.isNotEmpty) {
+                        baristaGroups.putIfAbsent(order.baristaId!, () => []).add(order);
+                        baristaNames[order.baristaId!] = order.baristaName ?? 'Unknown Barista';
+                      }
+                    }
+
+                    if (baristaGroups.isEmpty) {
+                      return const Padding(
+                        padding: EdgeInsets.symmetric(horizontal: 24),
+                        child: Text('Tidak ada riwayat barista pada pesanan hari ini.', style: TextStyle(color: AppColors.coffeeMuted)),
+                      );
+                    }
+
+                    return Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 24),
+                      child: Wrap(
+                        spacing: 16,
+                        runSpacing: 16,
+                        children: baristaGroups.entries.map((entry) {
+                          final bId = entry.key;
+                          final bOrders = entry.value;
+                          final name = baristaNames[bId] ?? 'Barista';
+                          
+                          int totalItems = 0;
+                          for (var o in bOrders) {
+                            for (var i in o.items) {
+                              totalItems += i.quantity;
+                            }
+                          }
+
+                          return Container(
+                            width: 300,
+                            padding: const EdgeInsets.all(20),
+                            decoration: BoxDecoration(
+                              color: AppColors.pureWhite,
+                              borderRadius: BorderRadius.circular(16),
+                              border: Border.all(color: AppColors.borderColor),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    CircleAvatar(
+                                      backgroundColor: AppColors.coffeeBrown.withOpacity(0.1),
+                                      child: const Icon(Icons.local_cafe_rounded, color: AppColors.coffeeBrown),
+                                    ),
+                                    const SizedBox(width: 12),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Text(name, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16, color: AppColors.coffeeDark)),
+                                          Text('Barista', style: const TextStyle(color: AppColors.coffeeMuted, fontSize: 12, fontWeight: FontWeight.w600)),
+                                        ],
+                                      ),
+                                    )
+                                  ],
+                                ),
+                                const SizedBox(height: 16),
+                                const Divider(height: 1),
+                                const SizedBox(height: 16),
+                                _buildRowText('Pesanan Dilayani', bOrders.length.toString(), isBold: true),
+                                const SizedBox(height: 8),
+                                _buildRowText('Total Item Dibuat', totalItems.toString()),
+                              ],
+                            ),
+                          );
+                        }).toList(),
+                      ),
+                    );
+                  },
+                ),
+              ),
+              const SliverPadding(padding: EdgeInsets.only(bottom: 40)),
+            ],
           ),
         ),
+      ],
+    );
+  }
+
+  Widget _buildRowText(String label, String value, {bool isBold = false, Color? color}) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Text(label, style: const TextStyle(fontSize: 13, color: AppColors.coffeeMuted)),
+        Text(value, style: TextStyle(
+          fontSize: 14, 
+          fontWeight: isBold ? FontWeight.w900 : FontWeight.w600,
+          color: color ?? AppColors.coffeeDark,
+        )),
       ],
     );
   }

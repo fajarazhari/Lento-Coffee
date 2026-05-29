@@ -1,6 +1,7 @@
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../../../../core/utils/id_generator.dart';
+import '../../../auth/presentation/screens/auth_screen.dart';
 import '../../data/models/order_model.dart';
 import '../../data/repositories/order_repository.dart';
 
@@ -163,7 +164,13 @@ class KdsActionsNotifier extends _$KdsActionsNotifier {
 
   Future<void> advance(String orderId, KdsStatus next) async {
     state = const AsyncLoading();
-    final result = await ref.read(orderRepositoryProvider).advanceKdsStatus(orderId, next);
+    final user = demoUserNotifier.value;
+    final result = await ref.read(orderRepositoryProvider).advanceKdsStatus(
+      orderId, 
+      next,
+      baristaId: user?.id,
+      baristaName: user?.name,
+    );
     state = result.fold(
       (failure) => AsyncError(failure, StackTrace.current),
       (_) => const AsyncData(null),

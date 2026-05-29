@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 import '../../../../app/theme/app_colors.dart';
 import '../../../../core/services/seed_service.dart';
+import '../../../auth/data/models/app_user_model.dart';
+import '../../../auth/presentation/screens/auth_screen.dart';
 
 class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({super.key});
@@ -59,7 +62,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 Expanded(
                   child: ListView(
                     padding: const EdgeInsets.symmetric(vertical: 8),
-                    children: _sections.map((s) {
+                    children: _sections.where((s) {
+                      final user = demoUserNotifier.value;
+                      if (user == null) return false;
+                      if (user.role == UserRole.owner) return true;
+                      return s.$1 == 'General' || s.$1 == 'Employees';
+                    }).map((s) {
                       final isActive = _activeSection == s.$1;
                       return InkWell(
                         onTap: () => setState(() => _activeSection = s.$1),
@@ -161,9 +169,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   }
 
   Widget _buildSection() {
+    final user = demoUserNotifier.value;
+    final isOwner = user?.role == UserRole.owner;
+
     return switch (_activeSection) {
       'General'   => _GeneralSection(),
-      'Employees' => _EmployeesSection(),
+      'Employees' => _EmployeesSection(user: user, isOwner: isOwner),
       'Backup'    => _BackupSection(),
       _           => _PlaceholderSection(section: _activeSection),
     };
@@ -202,15 +213,177 @@ class _GeneralSection extends StatelessWidget {
 
 // ── Employees Section ─────────────────────────────────────────────────────────
 class _EmployeesSection extends StatelessWidget {
-  static const _employees = [
-    ('Admin', 'owner',   'admin@lentocoffee.com',  true),
-    ('Budi',  'cashier', 'budi@lentocoffee.com',   true),
-    ('Siti',  'barista', 'siti@lentocoffee.com',   true),
-    ('Rudi',  'manager', 'rudi@lentocoffee.com',   false),
-  ];
+  const _EmployeesSection({required this.user, required this.isOwner});
+  final AppUserModel? user;
+  final bool isOwner;
+
+  Future<void> _showEditPinDialog(BuildContext context, AppUserModel targetUser) async {
+    final pinController = TextEditingController(text: targetUser.pin);
+    await showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: Text('Edit PIN - ${targetUser.name}'),
+          content: TextField(
+            controller: pinController,
+            keyboardType: TextInputType.number,
+            maxLength: 6,
+            obscureText: true,
+            decoration: const InputDecoration(
+              labelText: 'PIN Baru (6 Digit)',
+              border: OutlineInputBorder(),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Batal'),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(backgroundColor: AppColors.coffeeBrown, foregroundColor: Colors.white),
+              onPressed: () async {
+                final newPin = pinController.text.trim();
+                if (newPin.length == 6) {
+                  await FirebaseFirestore.instance.collection('users').doc(targetUser.id).update({'pin': newPin});
+                  if (context.mounted) {
+                    Navigator.pop(context);
+                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('PIN berhasil diperbarui!')));
+                  }
+                }
+              },
+              child: const Text('Simpan'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Future<void> _showAddEmployeeDialog(BuildContext context) async {
+    final nameController = TextEditingController();
+    final emailController = TextEditingController();
+    String selectedRole = 'cashier'; // cashier or barista
+
+    await showDialog(
+      context: context,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setState) {
+            return AlertDialog(
+              title: const Text('Tambah Karyawan Baru'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(
+                    controller: nameController,
+                    decoration: const InputDecoration(labelText: 'Nama Lengkap', border: OutlineInputBorder()),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: emailController,
+                    keyboardType: TextInputType.emailAddress,
+                    decoration: const InputDecoration(labelText: 'Email', border: OutlineInputBorder()),
+                  ),
+                  const SizedBox(height: 12),
+                  DropdownButtonFormField<String>(
+                    value: selectedRole,
+                    decoration: const InputDecoration(labelText: 'Peran (Role)', border: OutlineInputBorder()),
+                    items: const [
+                      DropdownMenuItem(value: 'cashier', child: Text('Kasir')),
+                      DropdownMenuItem(value: 'barista', child: Text('Barista')),
+                    ],
+                    onChanged: (val) => setState(() => selectedRole = val!),
+                  ),
+                  const SizedBox(height: 12),
+                  const Text('PIN bawaan untuk akun ini adalah 123456.', style: TextStyle(color: Colors.grey, fontSize: 12)),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('Batal'),
+                ),
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(backgroundColor: AppColors.coffeeBrown, foregroundColor: Colors.white),
+                  onPressed: () async {
+                    final name = nameController.text.trim();
+                    final email = emailController.text.trim();
+                    if (name.isEmpty || email.isEmpty) return;
+
+                    final id = '${selectedRole}_${DateTime.now().millisecondsSinceEpoch}';
+                    final color = selectedRole == 'cashier' ? '#4CAF50' : '#795548';
+
+                    await FirebaseFirestore.instance.collection('users').doc(id).set({
+                      'id': id,
+                      'name': name,
+                      'email': email,
+                      'role': selectedRole,
+                      'pin': '123456',
+                      'themeColor': color,
+                      'isActive': true,
+                      'createdAt': FieldValue.serverTimestamp(),
+                    });
+
+                    if (context.mounted) {
+                      Navigator.pop(context);
+                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Karyawan berhasil ditambahkan!')));
+                    }
+                  },
+                  child: const Text('Simpan'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
+    if (!isOwner) {
+      if (user == null) return const SizedBox();
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('Informasi Karyawan', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: AppColors.coffeeDark)),
+          const SizedBox(height: 16),
+          _SettingsCard(
+            title: 'Profil Saya',
+            child: Row(
+              children: [
+                CircleAvatar(
+                  radius: 32,
+                  backgroundColor: AppColors.coffeeBrown.withAlpha(40),
+                  child: Text(user!.initials, style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w900, color: AppColors.coffeeBrown)),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(user!.name, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: AppColors.coffeeDark)),
+                      Text('${user!.email} • ${user!.role.name.toUpperCase()}', style: const TextStyle(color: AppColors.coffeeMuted)),
+                    ],
+                  ),
+                ),
+                ElevatedButton.icon(
+                  onPressed: () => _showEditPinDialog(context, user!),
+                  icon: const Icon(Icons.password_rounded, size: 18),
+                  label: const Text('Ubah PIN'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.coffeeBrown,
+                    foregroundColor: Colors.white,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      );
+    }
+
+    // Owner View
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -221,23 +394,13 @@ class _EmployeesSection extends StatelessWidget {
                   color: AppColors.coffeeDark)),
             const Spacer(),
             ElevatedButton.icon(
-              onPressed: () {},
+              onPressed: () => _showAddEmployeeDialog(context),
               icon: const Icon(Icons.person_add_rounded, size: 16),
               label: const Text('Add Employee'),
               style: ElevatedButton.styleFrom(
                 backgroundColor: AppColors.coffeeBrown,
                 foregroundColor: Colors.white,
                 textStyle: const TextStyle(fontWeight: FontWeight.w700),
-                shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(10)),
-              ),
-            ),
-            const SizedBox(width: 8),
-            OutlinedButton.icon(
-              onPressed: () {},
-              icon: const Icon(Icons.email_rounded, size: 16),
-              label: const Text('Invite'),
-              style: OutlinedButton.styleFrom(
                 shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(10)),
               ),
@@ -255,84 +418,72 @@ class _EmployeesSection extends StatelessWidget {
             children: [
               // Header row
               Container(
-                padding: const EdgeInsets.symmetric(
-                    horizontal: 16, vertical: 12),
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                 decoration: const BoxDecoration(
                   color: AppColors.warmCream,
-                  borderRadius:
-                      BorderRadius.vertical(top: Radius.circular(12)),
+                  borderRadius: BorderRadius.vertical(top: Radius.circular(12)),
                 ),
                 child: const Row(children: [
                   SizedBox(width: 44),
                   Expanded(flex: 2, child: Text('Nama', style: _th)),
                   Expanded(flex: 3, child: Text('Email', style: _th)),
                   Expanded(flex: 1, child: Text('Role', style: _th)),
-                  Expanded(flex: 1, child: Text('Status', style: _th)),
                   SizedBox(width: 80, child: Text('Actions', style: _th)),
                 ]),
               ),
               const Divider(height: 1),
-              ..._employees.map((emp) => Column(children: [
-                Padding(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 16, vertical: 12),
-                  child: Row(children: [
-                    CircleAvatar(
-                      radius: 18,
-                      backgroundColor: AppColors.coffeeBrown.withAlpha(40),
-                      child: Text(emp.$1[0],
-                        style: const TextStyle(
-                          color: AppColors.coffeeBrown,
-                          fontWeight: FontWeight.w800)),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(flex: 2,
-                      child: Text(emp.$1,
-                        style: const TextStyle(
-                          fontWeight: FontWeight.w700,
-                          color: AppColors.coffeeDark))),
-                    Expanded(flex: 3,
-                      child: Text(emp.$3,
-                        style: const TextStyle(
-                          color: AppColors.coffeeMuted, fontSize: 13))),
-                    Expanded(flex: 1, child: _RoleBadge(role: emp.$2)),
-                    Expanded(flex: 1,
-                      child: Row(children: [
-                        Icon(
-                          emp.$4 ? Icons.circle : Icons.circle_outlined,
-                          size: 8,
-                          color: emp.$4
-                              ? AppColors.statusGreen
-                              : AppColors.statusRed,
-                        ),
-                        const SizedBox(width: 4),
-                        Text(emp.$4 ? 'Active' : 'Inactive',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: emp.$4
-                                ? AppColors.statusGreen
-                                : AppColors.statusRed)),
-                      ])),
-                    SizedBox(width: 80,
-                      child: Row(children: [
-                        IconButton(
-                          icon: const Icon(Icons.edit_rounded, size: 16),
-                          color: AppColors.coffeeBrown,
-                          onPressed: () {},
-                          tooltip: 'Edit',
-                        ),
-                        IconButton(
-                          icon: const Icon(
-                              Icons.delete_outline_rounded, size: 16),
-                          color: AppColors.statusRed,
-                          onPressed: () {},
-                          tooltip: 'Hapus',
-                        ),
-                      ])),
-                  ]),
-                ),
-                const Divider(height: 1),
-              ])),
+              StreamBuilder<QuerySnapshot>(
+                stream: FirebaseFirestore.instance.collection('users').snapshots(),
+                builder: (context, snapshot) {
+                  if (!snapshot.hasData) return const Padding(padding: EdgeInsets.all(32), child: Center(child: CircularProgressIndicator()));
+                  final users = snapshot.data!.docs.map((d) => AppUserModel.fromFirestore(d)).toList();
+                  
+                  return Column(
+                    children: users.map((u) => Column(children: [
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                        child: Row(children: [
+                          CircleAvatar(
+                            radius: 18,
+                            backgroundColor: AppColors.coffeeBrown.withAlpha(40),
+                            child: Text(u.initials,
+                              style: const TextStyle(
+                                color: AppColors.coffeeBrown,
+                                fontWeight: FontWeight.w800)),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(flex: 2,
+                            child: Text(u.name,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w700,
+                                color: AppColors.coffeeDark))),
+                          Expanded(flex: 3,
+                            child: Text(u.email,
+                              style: const TextStyle(
+                                color: AppColors.coffeeMuted, fontSize: 13))),
+                          Expanded(flex: 1, child: Align(alignment: Alignment.centerLeft, child: _RoleBadge(role: u.role.name))),
+                          SizedBox(width: 80,
+                            child: Row(children: [
+                              IconButton(
+                                icon: const Icon(Icons.password_rounded, size: 18),
+                                color: AppColors.coffeeBrown,
+                                onPressed: () => _showEditPinDialog(context, u),
+                                tooltip: 'Ubah PIN',
+                              ),
+                              IconButton(
+                                icon: const Icon(Icons.edit_rounded, size: 18),
+                                color: AppColors.coffeeBrown,
+                                onPressed: () {},
+                                tooltip: 'Edit Profil',
+                              ),
+                            ])),
+                        ]),
+                      ),
+                      const Divider(height: 1),
+                    ])).toList(),
+                  );
+                },
+              ),
             ],
           ),
         ),
